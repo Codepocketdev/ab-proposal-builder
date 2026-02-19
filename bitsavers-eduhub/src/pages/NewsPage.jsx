@@ -28,18 +28,54 @@ export default function NewsPage() {
   const [tab, setTab] = useState('news')
 
   useEffect(() => {
-    // Load events from localStorage (set by admin)
+    // ── Load events: localStorage first (instant), then Nostr ──────────────
+    const deleted = JSON.parse(localStorage.getItem('bitsavers_deleted_events') || '[]')
+    const cutoff = Date.now() - 86400000 // yesterday onwards
+
     try {
       const stored = JSON.parse(localStorage.getItem('bitsavers_events') || '[]')
-      setEvents(stored.filter(e => new Date(e.date) >= new Date(Date.now() - 86400000)))
+      setEvents(stored.filter(e => !deleted.includes(e.id) && new Date(e.date) >= new Date(cutoff)))
     } catch {}
 
-    // Fetch news posts from Nostr
+    // Fetch kind:1 events from Nostr — same as announcements but #t: bitsavers-event
     const pool = getPool()
+    const seenEvIds = new Set()
+    const evSub = pool.subscribe(
+      RELAYS,
+      { kinds: [1], '#t': ['bitsavers-event'], since: Math.floor(Date.now()/1000) - 365*86400, limit: 100 },
+      {
+        onevent(ev) {
+          if (seenEvIds.has(ev.id)) return
+          seenEvIds.add(ev.id)
+          try {
+            // Parse DATA: embedded JSON from content
+            const dataMatch = ev.content.match(/DATA:(\{.*\})/)
+            if (!dataMatch) return
+            const data = JSON.parse(dataMatch[1])
+            if (!data.id || !data.title || !data.date) return
+            if (deleted.includes(data.id)) return
+            if (new Date(data.date) < new Date(cutoff)) return
+            // Save to localStorage for offline use
+            const all = JSON.parse(localStorage.getItem('bitsavers_events') || '[]')
+            if (!all.find(e => e.id === data.id)) {
+              localStorage.setItem('bitsavers_events', JSON.stringify([data, ...all]))
+            }
+            setEvents(prev =>
+              prev.find(e => e.id === data.id) ? prev
+              : [...prev, data].sort((a,b) => new Date(a.date) - new Date(b.date))
+            )
+          } catch {}
+        },
+        oneose() { evSub.close() }
+      }
+    )
+
+    // ── Fetch news posts from Nostr ─────────────────────────────────────────
+    const pool2 = getPool()
     const seen = new Set()
     const batch = []
 
-    const sub = pool.subscribe(
+    const sub = pool2.subscribe(
       RELAYS,
       { kinds: [1], '#t': ['bitsavers-news'], since: Math.floor(Date.now()/1000) - 30*86400, limit: 30 },
       {

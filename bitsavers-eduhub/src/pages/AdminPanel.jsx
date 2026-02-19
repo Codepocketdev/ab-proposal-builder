@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../lib/AuthContext'
 import { ADMIN_NPUBS, isAdmin, isSuperAdmin } from '../config/admins'
-import { publishProfile, getPool } from '../lib/nostr'
+import { publishProfile, getPool, nsecToBytes } from '../lib/nostr'
 import { finalizeEvent } from 'nostr-tools/pure'
 import { nip19 } from 'nostr-tools'
 import ImageUpload from '../components/ImageUpload'
@@ -17,11 +17,6 @@ const C = {
   muted: '#666', green: '#22c55e', red: '#ef4444',
 }
 
-const nsecToBytes = (nsec) => {
-  const { type, data } = nip19.decode(nsec.trim())
-  if (type !== 'nsec') throw new Error('Not an nsec key')
-  return data
-}
 
 // ─── Section Tab ─────────────────────────────────────────────────────────────
 const SECTIONS = [
@@ -230,6 +225,50 @@ function PublishNews({ user }) {
 }
 
 // ─── Events ───────────────────────────────────────────────────────────────────
+const RELAYS_EV = ['wss://relay.damus.io', 'wss://nos.lol', 'wss://relay.nostr.band']
+
+// Publish event as kind:1 — same proven approach as announcements
+const publishEventToNostr = async (eventData) => {
+  const storedNsec = localStorage.getItem('bitsavers_nsec')
+  if (!storedNsec) return false
+  try {
+    const skBytes = nsecToBytes(storedNsec)
+    const pool = getPool()
+    // Build human-readable content so it looks good on Nostr clients too
+    const lines = [
+      '📅 ' + eventData.title,
+      eventData.date + (eventData.time ? ' at ' + eventData.time : ''),
+      eventData.instructor ? 'Instructor: ' + eventData.instructor : '',
+      eventData.description || '',
+      eventData.link ? 'Join: ' + eventData.link : '',
+      'DATA:' + JSON.stringify(eventData),
+    ].filter(Boolean)
+    const text = lines.join('\n')
+
+    const ev = finalizeEvent({
+      kind: 1,
+      created_at: Math.floor(Date.now() / 1000),
+      tags: [
+        ['t', 'bitsavers'],
+        ['t', 'bitsavers-event'],
+        ['subject', eventData.title],
+      ],
+      content: text,
+    }, skBytes)
+    await Promise.any(pool.publish(RELAYS_EV, ev))
+    // Store event id so we can reference it
+    const updated = JSON.parse(localStorage.getItem('bitsavers_events') || '[]')
+    const idx = updated.findIndex(e => e.id === eventData.id)
+    if (idx >= 0) { updated[idx].nostrId = ev.id; localStorage.setItem('bitsavers_events', JSON.stringify(updated)) }
+    return true
+  } catch(e) { console.error('publishEventToNostr failed:', e); return false }
+}
+
+const publishEventDelete = async (eventId) => {
+  // No-op for kind:1 — we rely on deleted list + not re-fetching
+  // Kind 5 deletion requests are often ignored by relays anyway
+}
+
 function ManageEvents({ user }) {
   const [events, setEvents] = useState(() => {
     const stored = localStorage.getItem('bitsavers_events')
@@ -237,24 +276,33 @@ function ManageEvents({ user }) {
   })
   const [form, setForm] = useState({ title: '', instructor: '', date: '', time: '', description: '', link: '' })
   const [msg, setMsg] = useState('')
+  const [publishing, setPublishing] = useState(false)
 
   const set = (key, val) => setForm(prev => ({ ...prev, [key]: val }))
 
-  const addEvent = () => {
+  const addEvent = async () => {
     if (!form.title.trim() || !form.date) { setMsg('err: Title and date required'); return }
     const newEvent = { id: Date.now().toString(), ...form, createdAt: Date.now() }
     const updated = [newEvent, ...events]
     setEvents(updated)
     localStorage.setItem('bitsavers_events', JSON.stringify(updated))
     setForm({ title: '', instructor: '', date: '', time: '', description: '', link: '' })
-    setMsg('ok: Event added!')
-    setTimeout(() => setMsg(''), 2000)
+    setPublishing(true)
+    setMsg('Publishing to Nostr…')
+    const ok = await publishEventToNostr(newEvent)
+    setPublishing(false)
+    setMsg(ok ? 'ok: Event published!' : 'ok: Event saved locally (Nostr publish failed)')
+    setTimeout(() => setMsg(''), 3000)
   }
 
-  const deleteEvent = (id) => {
+  const deleteEvent = async (id) => {
     const updated = events.filter(e => e.id !== id)
     setEvents(updated)
     localStorage.setItem('bitsavers_events', JSON.stringify(updated))
+    // Track deleted so it doesn't reappear from Nostr fetch
+    const deleted = JSON.parse(localStorage.getItem('bitsavers_deleted_events') || '[]')
+    if (!deleted.includes(id)) localStorage.setItem('bitsavers_deleted_events', JSON.stringify([...deleted, id]))
+    await publishEventDelete(id)
   }
 
   return (
@@ -270,7 +318,9 @@ function ManageEvents({ user }) {
         <Textarea label="Description" value={form.description} onChange={v => set('description', v)} placeholder="What will be covered?" rows={3} />
         <Input label="Join Link (optional)" value={form.link} onChange={v => set('link', v)} placeholder="https://meet.jit.si/..." />
         <StatusMsg msg={msg} />
-        <Btn onClick={addEvent} disabled={!form.title.trim() || !form.date}>+ Add Event</Btn>
+        <Btn onClick={addEvent} disabled={!form.title.trim() || !form.date || publishing}>
+          {publishing ? <><Loader size={13} style={{animation:'spin 1s linear infinite',marginRight:6}}/>Publishing…</> : '+ Add Event'}
+        </Btn>
       </Card>
 
       {events.length > 0 && (
