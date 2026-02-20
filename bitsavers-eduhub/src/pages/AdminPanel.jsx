@@ -8,8 +8,9 @@ import ImageUpload from '../components/ImageUpload'
 import AdminAssignments from './AdminAssignments'
 import AdminSubmissions from './AdminSubmissions'
 import AdminPoW from './AdminPoW'
+import AdminBlog from './AdminBlog'
 import AdminSocials from './AdminSocials'
-import { Users, Newspaper, Calendar, Image, Megaphone, Trash2, Upload, Copy, Crown, Shield, Loader, Send, ClipboardList, CheckCircle, AlertCircle, Inbox, Hammer, Share2 } from 'lucide-react'
+import { Users, Newspaper, Calendar, Image, Megaphone, Trash2, Upload, Copy, Crown, Shield, Loader, Send, ClipboardList, CheckCircle, AlertCircle, Inbox, Hammer, Share2, BookOpen } from 'lucide-react'
 
 const RELAYS = ['wss://relay.damus.io', 'wss://nos.lol', 'wss://relay.nostr.band']
 
@@ -26,7 +27,7 @@ const SECTIONS = [
   { id: 'admins',      label: 'Admins',      },
   { id: 'news',        label: 'News',        },
   { id: 'events',      label: 'Events',      },
-  { id: 'media',       label: 'Media',       },
+  { id: 'media',       label: 'Blog',        },
   { id: 'assignments', label: 'Assignments', },
   { id: 'submissions', label: 'Submissions', },
   { id: 'pow',         label: 'PoW Stats',   },
@@ -517,7 +518,7 @@ export default function AdminPanel({ user }) {
       {/* Section tabs */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6, marginBottom: 20 }}>
         {SECTIONS.map(s => {
-          const icons = { admins: <Users size={14}/>, news: <Newspaper size={14}/>, events: <Calendar size={14}/>, media: <Image size={14}/>, assignments: <ClipboardList size={14}/>, submissions: <Inbox size={14}/>, pow: <Hammer size={14}/>, socials: <Share2 size={14}/> }
+          const icons = { admins: <Users size={14}/>, news: <Newspaper size={14}/>, events: <Calendar size={14}/>, media: <BookOpen size={14}/>, assignments: <ClipboardList size={14}/>, submissions: <Inbox size={14}/>, pow: <Hammer size={14}/>, socials: <Share2 size={14}/> }
           return (
             <button key={s.id} onClick={() => setSection(s.id)} style={{
               background: section === s.id ? C.accent : C.card,
@@ -538,7 +539,7 @@ export default function AdminPanel({ user }) {
       {section === 'admins' && <ManageAdmins user={user} />}
       {section === 'news'   && <PublishNews user={user} />}
       {section === 'events' && <ManageEvents user={user} />}
-      {section === 'media'       && <MediaLibrary />}
+      {section === 'media'       && <AdminBlog />}
       {section === 'assignments' && <AdminAssignments />}
       {section === 'submissions' && <AdminSubmissions />}
       {section === 'pow'         && <AdminPoW />}
